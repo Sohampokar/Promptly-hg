@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Brain, Github, Mail } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { useAuth } from "@/lib/hooks/useAuth"
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -23,17 +24,33 @@ export default function SignupPage() {
     agreeToTerms: false,
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState("")
   const router = useRouter()
+  const { register } = useAuth()
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError("")
 
-    // Simulate signup
-    setTimeout(() => {
+    try {
+      const result = await register({
+        email: formData.email,
+        password: formData.password,
+        name: formData.name,
+        role: formData.role || 'student'
+      })
+      
+      if (result.success) {
+        router.push("/dashboard")
+      } else {
+        setError(result.error || "Registration failed")
+      }
+    } catch (error) {
+      setError("An unexpected error occurred")
+    } finally {
       setIsLoading(false)
-      router.push("/dashboard")
-    }, 1000)
+    }
   }
 
   return (
@@ -51,6 +68,11 @@ export default function SignupPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSignup} className="space-y-4">
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md text-sm">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
               <Input

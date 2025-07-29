@@ -8,12 +8,41 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Brain, BookOpen, Play, Lock, Clock, Users, Star, Search, Trophy, Target, Zap } from "lucide-react"
 import Link from "next/link"
+import { useCourses } from "@/lib/hooks/useApi"
+import { useEffect } from "react"
 
 export default function CoursesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
+  const [courses, setCourses] = useState([])
+  const { getCourses, loading } = useCourses()
 
-  const courses = [
+  useEffect(() => {
+    loadCourses()
+  }, [selectedCategory, searchQuery])
+
+  const loadCourses = async () => {
+    try {
+      const filters: any = {}
+      
+      if (selectedCategory !== 'all') {
+        filters.category = selectedCategory
+      }
+      
+      if (searchQuery) {
+        filters.search = searchQuery
+      }
+
+      const result = await getCourses(filters)
+      if (result.success) {
+        setCourses(result.data)
+      }
+    } catch (error) {
+      console.error('Failed to load courses:', error)
+    }
+  }
+
+  const defaultCourses = [
     {
       id: "foundation",
       title: "Foundation Track",
@@ -147,18 +176,19 @@ export default function CoursesPage() {
   ]
 
   const categories = [
-    { id: "all", name: "All Courses", count: courses.length },
-    { id: "fundamentals", name: "Fundamentals", count: courses.filter((c) => c.category === "fundamentals").length },
+    { id: "all", name: "All Courses", count: courses.length || defaultCourses.length },
+    { id: "fundamentals", name: "Fundamentals", count: (courses.length > 0 ? courses : defaultCourses).filter((c: any) => c.category === "fundamentals").length },
     {
       id: "advanced-techniques",
       name: "Advanced Techniques",
-      count: courses.filter((c) => c.category === "advanced-techniques").length,
+      count: (courses.length > 0 ? courses : defaultCourses).filter((c: any) => c.category === "advanced-techniques").length,
     },
-    { id: "automation", name: "Automation", count: courses.filter((c) => c.category === "automation").length },
-    { id: "role-specific", name: "Role-Specific", count: courses.filter((c) => c.category === "role-specific").length },
+    { id: "automation", name: "Automation", count: (courses.length > 0 ? courses : defaultCourses).filter((c: any) => c.category === "automation").length },
+    { id: "role-specific", name: "Role-Specific", count: (courses.length > 0 ? courses : defaultCourses).filter((c: any) => c.category === "role-specific").length },
   ]
 
-  const filteredCourses = courses.filter((course) => {
+  const displayCourses = courses.length > 0 ? courses : defaultCourses
+  const filteredCourses = displayCourses.filter((course: any) => {
     const matchesSearch =
       course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       course.description.toLowerCase().includes(searchQuery.toLowerCase())
@@ -224,6 +254,7 @@ export default function CoursesPage() {
               </Button>
             ))}
           </div>
+          )}
         </div>
 
         {/* Course Grid */}

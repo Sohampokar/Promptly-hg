@@ -1,73 +1,85 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/middleware/auth'
+import { CourseService } from '@/lib/services/CourseService'
+import { apiRateLimit } from '@/lib/middleware/rateLimit'
+import { sanitizeInput } from '@/lib/middleware/validation'
 
-// Mock user progress data
-const userProgress = {
-  userId: "user-123",
-  courses: {
-    foundation: {
-      courseId: "foundation",
-      progress: 75,
-      completedLessons: ["what-is-prompting", "ai-models-basics", "first-prompt"],
-      currentLesson: "prompt-examples",
-      timeSpent: 180, // minutes
-      xpEarned: 1350,
-      lastAccessed: new Date().toISOString(),
-    },
-  },
-  totalXp: 1350,
-  level: 3,
-  streak: 7,
-  achievements: ["first-lesson", "week-streak", "theory-master"],
-}
-
-export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const userId = searchParams.get("userId") || "user-123"
-  const courseId = searchParams.get("courseId")
-
-  if (courseId) {
-    const courseProgress = userProgress.courses[courseId as keyof typeof userProgress.courses]
-    return NextResponse.json({
-      success: true,
-      data: courseProgress || null,
-    })
-  }
-
-  return NextResponse.json({
-    success: true,
-    data: userProgress,
-  })
-}
-
-export async function POST(request: NextRequest) {
+export const GET = requireAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json()
-    const { userId, courseId, lessonId, action } = body
+    // Apply rate limiting
+    const rateLimitResult = await apiRateLimit(request)
+    if (rateLimitResult) return rateLimitResult
 
-    if (action === "complete-lesson") {
-      // Update progress
-      if (userProgress.courses[courseId]) {
-        const course = userProgress.courses[courseId]
-        if (!course.completedLessons.includes(lessonId)) {
-          course.completedLessons.push(lessonId)
-          course.xpEarned += 100 // Award XP
-          userProgress.totalXp += 100
-        }
-      }
+    const { searchParams } = new URL(request.url)
+    const courseId = searchParams.get('courseId')
+
+    if (!courseId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Course ID is required'
+        },
+        { status: 400 }
+      )
     }
 
-    return NextResponse.json({
-      success: true,
-      data: userProgress,
-      message: "Progress updated successfully",
-    })
+    const result = await CourseService.getUserCourses((request as any).user._id)
+
+    // Filter for specific course if requested
+    if (courseId && result.success) {
+      const courseProgress = result.data.find((p: any) => p.course._id.toString() === courseId)
+      return NextResponse.json({
+        success: true,
+        data: courseProgress || null
+      })
+    }
+
+    return NextResponse.json(result)
   } catch (error) {
+    console.error('Get progress API error:', error)
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to update progress",
+        error: 'Internal server error'
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
-}
+})
+
+export const POST = requireAuth(async (request: NextRequest) => {
+  try {
+    const body = await request.json()
+    const sanitizedData = sanitizeInput(body)
+
+    const { courseId, lessonId, action, ...progressData } = sanitizedData
+
+    if (!courseId || !lessonId || !action) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Course ID, lesson ID, and action are required'
+        },
+        { status: 400 }
+      )
+    }
+
+    const result = await CourseService.updateProgress(
+      (request as any).user._id,
+      courseId,
+      lessonId,
+      progressData
+    )
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('Update progress API error:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Internal server error'
+      },
+      { status: 500 }
+    )
+  }
+})

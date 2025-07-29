@@ -1,85 +1,76 @@
-import { type NextRequest, NextResponse } from "next/server"
-
-// Mock database - in production, use a real database
-const courses = [
-  {
-    id: "foundation",
-    title: "Foundation Track",
-    description: "Master the fundamentals of prompt engineering",
-    difficulty: "Beginner",
-    duration: "4-6 weeks",
-    modules: 4,
-    lessons: 18,
-    xp: 1800,
-    enrolled: 15420,
-    rating: 4.8,
-    instructor: "Dr. Sarah Chen",
-    prerequisites: [],
-    learningObjectives: [
-      "Understand what prompt engineering is and why it matters",
-      "Learn the anatomy of effective prompts",
-      "Master basic prompting techniques",
-      "Practice writing clear, specific instructions",
-    ],
-    modules_data: [
-      {
-        id: "intro-prompting",
-        title: "Introduction to Prompting",
-        lessons: 5,
-        duration: "1 week",
-        completed: false,
-      },
-    ],
-  },
-]
+import { NextRequest, NextResponse } from 'next/server'
+import { CourseService } from '@/lib/services/CourseService'
+import { requireAuth, requireRole } from '@/lib/middleware/auth'
+import { apiRateLimit } from '@/lib/middleware/rateLimit'
+import { sanitizeInput } from '@/lib/middleware/validation'
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url)
-  const difficulty = searchParams.get("difficulty")
-  const category = searchParams.get("category")
-
-  let filteredCourses = courses
-
-  if (difficulty) {
-    filteredCourses = filteredCourses.filter((course) => course.difficulty.toLowerCase() === difficulty.toLowerCase())
-  }
-
-  return NextResponse.json({
-    success: true,
-    data: filteredCourses,
-    total: filteredCourses.length,
-  })
-}
-
-export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
+    // Apply rate limiting
+    const rateLimitResult = await apiRateLimit(request)
+    if (rateLimitResult) return rateLimitResult
 
-    const newCourse = {
-      id: `course-${Date.now()}`,
-      ...body,
-      enrolled: 0,
-      rating: 0,
-      createdAt: new Date().toISOString(),
+    const { searchParams } = new URL(request.url)
+    
+    const filters = {
+      difficulty: searchParams.get('difficulty') || undefined,
+      category: searchParams.get('category') || undefined,
+      tags: searchParams.get('tags')?.split(',') || undefined,
+      search: searchParams.get('search') || undefined,
+      instructor: searchParams.get('instructor') || undefined,
+      page: parseInt(searchParams.get('page') || '1'),
+      limit: parseInt(searchParams.get('limit') || '10'),
+      sortBy: (searchParams.get('sortBy') as any) || 'newest'
     }
 
-    courses.push(newCourse)
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: newCourse,
-        message: "Course created successfully",
-      },
-      { status: 201 },
-    )
+    const result = await CourseService.getAllCourses(filters)
+    return NextResponse.json(result)
   } catch (error) {
+    console.error('Get courses API error:', error)
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to create course",
+        error: 'Internal server error'
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
+
+export const POST = requireRole(['instructor', 'admin'])(async (request: NextRequest) => {
+  try {
+    const body = await request.json()
+    const sanitizedData = sanitizeInput(body)
+
+    // Validate required fields
+    const requiredFields = ['title', 'description', 'difficulty', 'category']
+    for (const field of requiredFields) {
+      if (!sanitizedData[field]) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `${field} is required`
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    const result = await CourseService.createCourse(sanitizedData, (request as any).user._id)
+
+    if (!result.success) {
+      return NextResponse.json(result, { status: 400 })
+    }
+
+    return NextResponse.json(result, { status: 201 })
+  } catch (error) {
+    console.error('Create course API error:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Internal server error'
+      },
+      { status: 500 }
+    )
+  }
+})

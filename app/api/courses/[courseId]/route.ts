@@ -1,78 +1,76 @@
-import { type NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from 'next/server'
+import { CourseService } from '@/lib/services/CourseService'
+import { requireAuth } from '@/lib/middleware/auth'
+import { apiRateLimit } from '@/lib/middleware/rateLimit'
+import { sanitizeInput } from '@/lib/middleware/validation'
 
-const courseDetails = {
-  foundation: {
-    id: "foundation",
-    title: "Foundation Track",
-    description: "Master the fundamentals of prompt engineering",
-    difficulty: "Beginner",
-    duration: "4-6 weeks",
-    modules: 4,
-    lessons: 18,
-    xp: 1800,
-    enrolled: 15420,
-    rating: 4.8,
-    instructor: {
-      name: "Dr. Sarah Chen",
-      bio: "AI Research Scientist with 10+ years experience",
-      avatar: "/placeholder.svg?height=64&width=64",
-    },
-    syllabus: [
-      {
-        id: "intro-prompting",
-        title: "Introduction to Prompting",
-        lessons: [
-          { id: "what-is-prompting", title: "What is Prompt Engineering?", duration: "15 min", type: "theory" },
-          { id: "ai-models-basics", title: "Understanding AI Models", duration: "20 min", type: "theory" },
-          { id: "first-prompt", title: "Writing Your First Prompt", duration: "25 min", type: "practice" },
-        ],
-      },
-    ],
-  },
-}
-
-export async function GET(request: NextRequest, { params }: { params: { courseId: string } }) {
-  const course = courseDetails[params.courseId as keyof typeof courseDetails]
-
-  if (!course) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Course not found",
-      },
-      { status: 404 },
-    )
-  }
-
-  return NextResponse.json({
-    success: true,
-    data: course,
-  })
-}
-
-export async function PUT(request: NextRequest, { params }: { params: { courseId: string } }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { courseId: string } }
+) {
   try {
-    const body = await request.json()
+    // Apply rate limiting
+    const rateLimitResult = await apiRateLimit(request)
+    if (rateLimitResult) return rateLimitResult
 
-    // In a real app, update the course in the database
-    const updatedCourse = {
-      ...courseDetails[params.courseId as keyof typeof courseDetails],
-      ...body,
-      updatedAt: new Date().toISOString(),
+    // Try to get user from auth header (optional for public courses)
+    let userId: string | undefined
+    try {
+      const authHeader = request.headers.get('authorization')
+      if (authHeader) {
+        const user = await require('@/lib/middleware/auth').authenticateUser(request)
+        userId = user._id
+      }
+    } catch (error) {
+      // Ignore auth errors for public access
     }
 
-    return NextResponse.json({
-      success: true,
-      data: updatedCourse,
-      message: "Course updated successfully",
-    })
+    const result = await CourseService.getCourseById(params.courseId, userId)
+
+    if (!result.success) {
+      return NextResponse.json(result, { status: 404 })
+    }
+
+    return NextResponse.json(result)
   } catch (error) {
+    console.error('Get course API error:', error)
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to update course",
+        error: 'Internal server error'
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
+
+export const PUT = requireAuth(async (
+  request: NextRequest,
+  { params }: { params: { courseId: string } }
+) => {
+  try {
+    const body = await request.json()
+    const sanitizedData = sanitizeInput(body)
+
+    const result = await CourseService.updateCourse(
+      params.courseId,
+      sanitizedData,
+      (request as any).user._id
+    )
+
+    if (!result.success) {
+      return NextResponse.json(result, { status: result.error === 'Course not found or unauthorized' ? 404 : 400 })
+    }
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('Update course API error:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Internal server error'
+      },
+      { status: 500 }
+    )
+  }
+})

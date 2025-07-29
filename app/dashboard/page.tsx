@@ -8,12 +8,56 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Brain, Trophy, Users, Zap, Target, Calendar, TrendingUp, Star, Play, Lock, CheckCircle } from "lucide-react"
 import Link from "next/link"
+import { useAuth } from "@/lib/hooks/useAuth"
+import { useProfile } from "@/lib/hooks/useApi"
+import { useEffect } from "react"
 
 export default function DashboardPage() {
+  const { user, loading: authLoading } = useAuth()
+  const { getProfile, getUserCourses, loading: profileLoading } = useProfile()
   const [currentStreak, setCurrentStreak] = useState(7)
   const [totalXP, setTotalXP] = useState(2450)
   const [level, setLevel] = useState(5)
+  const [userCourses, setUserCourses] = useState([])
 
+  useEffect(() => {
+    if (user) {
+      loadUserData()
+    }
+  }, [user])
+
+  const loadUserData = async () => {
+    try {
+      const [profileResult, coursesResult] = await Promise.all([
+        getProfile(),
+        getUserCourses()
+      ])
+
+      if (profileResult.success) {
+        const userData = profileResult.data
+        setCurrentStreak(userData.learning.streak)
+        setTotalXP(userData.learning.totalXp)
+        setLevel(userData.learning.level)
+      }
+
+      if (coursesResult.success) {
+        setUserCourses(coursesResult.data)
+      }
+    } catch (error) {
+      console.error('Failed to load user data:', error)
+    }
+  }
+
+  if (authLoading || profileLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    )
+  }
   const learningPaths = [
     {
       id: "foundation",
@@ -100,7 +144,7 @@ export default function DashboardPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Welcome Section */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Welcome back, Alex! 👋</h1>
+          <h1 className="text-3xl font-bold mb-2">Welcome back, {user?.name || 'Student'}! 👋</h1>
           <p className="text-gray-600">Ready to continue your prompt engineering journey?</p>
         </div>
 
